@@ -197,7 +197,7 @@ namespace TicTacToeTest.Controllers
         {
             return gameMoveJson.GameId != 0
                 && gameMoveJson.PlayerToken != null
-                && gameMoveJson.Grid != null
+                && gameMoveJson.Grid != GameGrid.EmptyGrid
                 && GameGrid.IsGridCorrect(gameMoveJson.Grid);
         }
 

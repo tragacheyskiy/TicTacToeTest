@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace TicTacToeTest.Models
@@ -9,7 +8,7 @@ namespace TicTacToeTest.Models
         public int Id { get; set; }
         [MaxLength(36)] public string CrossToken { get; set; }
         [MaxLength(36)] public string ZeroToken { get; set; }
-        [MaxLength(15)] public string Status { get; set; } = Enum.GetName(GameStatus.Starts);
+        [MaxLength(15)] public string Status { get; set; } = GameStatus.Starts;
 
         public IList<Player> Players { get; set; } = new List<Player>();
 

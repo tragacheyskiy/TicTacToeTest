@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.IISIntegration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -19,12 +21,12 @@ namespace TicTacToeTest
 
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddDbContext<TicTacToeStorage>(options => options.UseSqlServer(ConnectionString));
-            services.AddScoped<IRepository, GameRepository>();
+            services.AddDbContext<TicTacToeDbContext>(options => options.UseSqlServer(ConnectionString));
+            services.AddScoped<IDataStore, GameDataStore>();
             services.AddControllers();
         }
 
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, ILogger<Startup> logger)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
             if (env.IsDevelopment())
             {

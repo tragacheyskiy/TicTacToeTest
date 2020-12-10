@@ -1,11 +1,11 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System;
-using System.Collections.Concurrent;
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using TicTacToeTest.Data;
 using TicTacToeTest.Models;
+using TicTacToeTest.Services;
 
 namespace TicTacToeTest.Controllers
 {
@@ -13,34 +13,35 @@ namespace TicTacToeTest.Controllers
     [Route("api/[controller]")]
     public class GameController : ControllerBase
     {
-        // Хранит незавершённые игры в рамках текущей сесии.
-        private static readonly ConcurrentBag<Game> startedGames = new ConcurrentBag<Game>();
+        private static readonly List<Game> startedGames = new List<Game>();
 
-        private readonly IRepository gameRepo;
+        private readonly IDataStore gameDataStore;
+        private readonly GameGrid gameGrid;
 
-        public GameController(IRepository gameRepo)
+        public GameController(IDataStore gameDataStore)
         {
-            this.gameRepo = gameRepo;
+            this.gameDataStore = gameDataStore;
+            gameGrid = new GameGrid();
         }
 
         [HttpGet]
         public async Task<string> GetPlayer()
         {
             var player = new Player { Token = $"{Guid.NewGuid()}" };
-            return await gameRepo.AddPlayerAsync(player);
+            return await gameDataStore.AddPlayerAsync(player);
         }
 
         [HttpGet("{token}")]
         public async Task<ActionResult<int>> GetNewGame(string token)
         {
-            Player player = await gameRepo.GetPlayerAsync(token);
+            Player player = await gameDataStore.GetPlayerAsync(token);
 
             if (player == null)
             {
-                return Unauthorized();
+                return NotFound("Such player token not found");
             }
 
-            Game game = startedGames.FirstOrDefault(game => game.Players.Any(existingPlayer => existingPlayer.Equals(player)));
+            Game game = startedGames.FirstOrDefault(game => IsPlayerAttachedToGame(token, game));
 
             return game == null ? await CreateNewGameAsync(player) : game.Id;
         }
@@ -49,36 +50,36 @@ namespace TicTacToeTest.Controllers
         {
             var game = new Game();
             game.Players.Add(player);
-            int gameId = await gameRepo.AddGameAsync(game);
+            int gameId = await gameDataStore.AddGameAsync(game);
             startedGames.Add(game);
             return gameId;
         }
 
         [HttpGet("{token}/{gameId}")]
-        public async Task<ActionResult<GameField>> GetGameField(string token, int gameId)
+        public async Task<ActionResult> GetGame(string token, int gameId)
         {
-            Player player = await gameRepo.GetPlayerAsync(token);
+            Player player = await gameDataStore.GetPlayerAsync(token);
 
             if (player == null)
             {
-                return Unauthorized();
+                return NotFound("Such player token not found");
             }
 
-            Game game = startedGames.FirstOrDefault(game => game.Id == gameId);
+            Game game = GetStartedGame(gameId);
 
             if (game == null)
             {
-                return NotFound();
+                return NotFound("Such game id not found");
             }
 
-            if (game.Players.Any(existingPlayer => existingPlayer.Equals(player)))
+            if (IsPlayerAttachedToGame(token, game))
             {
                 return GetNewGameFiled(game);
             }
 
             if (game.Players.Count == 2)
             {
-                return Forbid();
+                return BadRequest("There are no places in the game");
             }
 
             game = await AddSecondPlayerToGame(game, player);
@@ -88,26 +89,97 @@ namespace TicTacToeTest.Controllers
 
         private async Task<Game> AddSecondPlayerToGame(Game game, Player player)
         {
-            game = await gameRepo.GetGameAsync(game.Id);
+            int indexOfStartedGame = startedGames.IndexOf(game);
+            game = await gameDataStore.GetGameAsync(game.Id);
             game.Players.Add(player);
-            game.Status = Enum.GetName(GameStatus.Goes);
-            await gameRepo.SaveChangesAsync();
+            game.Status = GameStatus.Goes;
+            await gameDataStore.SaveChangesAsync();
+            startedGames[indexOfStartedGame] = game;
             return game;
         }
 
-        private GameField GetNewGameFiled(Game game)
+        private OkObjectResult GetNewGameFiled(Game game)
         {
-            return new GameField()
-            {
-                GameId = game.Id,
-                Status = game.Status
-            };
+            return Ok(new { GameId = game.Id, Status = game.Status, Grid = game.GameMoves.LastOrDefault()?.Grid ?? GameGrid.EmptyGrid });
         }
 
-        // POST api/<GameController>
         [HttpPost]
-        public void Post([FromBody] string value)
+        public async Task<ActionResult<bool>> Post(GameMoveJson gameMoveJson)
         {
+            if (!IsJsonCorrect(gameMoveJson))
+            {
+                return BadRequest(new { Message = "Incorrect object", Example = new GameMoveJson() });
+            }
+
+            Game game = GetStartedGame(gameMoveJson.GameId);
+            int indexOfStartedGame = startedGames.IndexOf(game);
+
+            if (game == null)
+            {
+                return NotFound("Such game id not found");
+            }
+
+            if (!IsPlayerAttachedToGame(gameMoveJson.PlayerToken, game))
+            {
+                return BadRequest("Access denied");
+            }
+
+            game = await gameDataStore.GetGameAsync(gameMoveJson.GameId);
+
+            if (game.CrossToken == null)
+            {
+                game.ZeroToken = game.Players.First(existingPlayer => !existingPlayer.Equals(gameMoveJson.PlayerToken)).Token;
+                game.CrossToken = gameMoveJson.PlayerToken;
+            }
+
+            string gameStatus = gameGrid.CheckGridAndGetGameStatus(gameMoveJson.Grid);
+
+            GameMove gameMove = new GameMove()
+            {
+                PlayerToken = gameMoveJson.PlayerToken,
+                Grid = gameMoveJson.Grid
+            };
+
+            game.GameMoves.Add(gameMove);
+            game.Status = gameStatus;
+
+            await gameDataStore.SaveChangesAsync();
+
+            if (IsGameEnds(game))
+            {
+                startedGames.RemoveAt(indexOfStartedGame);
+            }
+            else
+            {
+                startedGames[indexOfStartedGame] = game;
+            }
+
+            return true;
+        }
+
+        private bool IsJsonCorrect(GameMoveJson gameMoveJson)
+        {
+            return gameMoveJson.GameId != 0
+                && gameMoveJson.PlayerToken != null
+                && gameMoveJson.Grid != null
+                && GameGrid.IsGridCorrect(gameMoveJson.Grid);
+        }
+
+        private Game GetStartedGame(int gameId)
+        {
+            return startedGames.FirstOrDefault(game => game.Id == gameId);
+        }
+
+        private bool IsPlayerAttachedToGame(string playerToken, Game game)
+        {
+            return game.Players.Any(existingPlayer => existingPlayer.Equals(playerToken));
+        }
+
+        private bool IsGameEnds(Game game)
+        {
+            return game.Status == GameStatus.CrossWon
+                || game.Status == GameStatus.ZeroWon
+                || game.Status == GameStatus.Draw;
         }
     }
 }

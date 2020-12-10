@@ -1,11 +1,11 @@
 ﻿namespace TicTacToeTest.Models
 {
-    public enum GameStatus
+    internal static class GameStatus
     {
-        Starts,
-        Goes,
-        FirstPlayerWon,
-        SecondPlayerWon,
-        Draw
+        public const string Starts = "Starts";
+        public const string Goes = "Goes";
+        public const string CrossWon = "CrossWon";
+        public const string ZeroWon = "ZeroWon";
+        public const string Draw = "Draw";
     }
 }

@@ -13,7 +13,13 @@ namespace TicTacToeTest.Models
         public bool Equals(Player other)
         {
             return other != null
-                && Token.Equals(other.Token, StringComparison.OrdinalIgnoreCase);
+                && Equals(other.Token);
+        }
+
+        public bool Equals(string otherPlayerToken)
+        {
+            return otherPlayerToken != null
+                && Token.Equals(otherPlayerToken, StringComparison.OrdinalIgnoreCase);
         }
 
         public override bool Equals(object obj)

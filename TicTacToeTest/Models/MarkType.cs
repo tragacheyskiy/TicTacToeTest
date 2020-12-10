@@ -1,6 +1,6 @@
 ﻿namespace TicTacToeTest.Models
 {
-    public enum MarkType
+    internal enum MarkType
     {
         Clear,
         Zero,

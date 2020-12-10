@@ -13,6 +13,8 @@ namespace TicTacToeTest.Controllers
     [Route("api/[controller]")]
     public class GameController : ControllerBase
     {
+        private const string DateTimeTemplate = "MM.dd.yyyy' 'HH:mm:ss:fff";
+
         private static readonly List<Game> startedGames = new List<Game>();
 
         private readonly IDataStore gameDataStore;
@@ -24,6 +26,37 @@ namespace TicTacToeTest.Controllers
             gameGrid = new GameGrid();
         }
 
+        #region HttpStatusCodes
+        private async Task<NotFoundObjectResult> LogNotFoundAsync(object value, string relativeRequestPath = "", object requestObject = null)
+        {
+            var logEntry = new LogEntry()
+            {
+                Message = $"{DateTime.Now.ToString(DateTimeTemplate)}" +
+                          $"\nNotFound(404)" +
+                          $"\n\tValue: {value}" +
+                          $"\n\tRequest: api/game/{relativeRequestPath}" +
+                          $"{(requestObject == null ? string.Empty : $"\n\tRequest object: {requestObject}")}"
+            };
+            await gameDataStore.AddLogEntry(logEntry);
+            return NotFound(value);
+        }
+
+        private async Task<BadRequestObjectResult> LogBadRequestAsync(object error, string relativeRequestPath = "", object requestObject = null)
+        {
+            var logEntry = new LogEntry()
+            {
+                Message = $"{DateTime.Now.ToString(DateTimeTemplate)}" +
+                          $"\nBadRequest(400)" +
+                          $"\n\tError: {error}" +
+                          $"\n\tRequest: api/game/{relativeRequestPath}" +
+                          $"{(requestObject == null ? string.Empty : $"\n\tRequest object: {requestObject}")}"
+            };
+            await gameDataStore.AddLogEntry(logEntry);
+            return BadRequest(error);
+        }
+        #endregion
+
+        #region GET
         [HttpGet]
         public async Task<string> GetPlayer()
         {
@@ -38,21 +71,12 @@ namespace TicTacToeTest.Controllers
 
             if (player == null)
             {
-                return NotFound("Such player token not found");
+                return await LogNotFoundAsync("Such player token not found", token);
             }
 
             Game game = startedGames.FirstOrDefault(game => IsPlayerAttachedToGame(token, game));
 
             return game == null ? await CreateNewGameAsync(player) : game.Id;
-        }
-
-        private async Task<int> CreateNewGameAsync(Player player)
-        {
-            var game = new Game();
-            game.Players.Add(player);
-            int gameId = await gameDataStore.AddGameAsync(game);
-            startedGames.Add(game);
-            return gameId;
         }
 
         [HttpGet("{token}/{gameId}")]
@@ -62,14 +86,14 @@ namespace TicTacToeTest.Controllers
 
             if (player == null)
             {
-                return NotFound("Such player token not found");
+                return await LogNotFoundAsync("Such player token not found", $"{token}/{gameId}");
             }
 
             Game game = GetStartedGame(gameId);
 
             if (game == null)
             {
-                return NotFound("Such game id not found");
+                return await LogNotFoundAsync("Such game id not found", $"{token}/{gameId}");
             }
 
             if (IsPlayerAttachedToGame(token, game))
@@ -79,36 +103,22 @@ namespace TicTacToeTest.Controllers
 
             if (game.Players.Count == 2)
             {
-                return BadRequest("There are no places in the game");
+                return await LogBadRequestAsync("There are no places in the game", $"{token}/{gameId}");
             }
 
             game = await AddSecondPlayerToGame(game, player);
 
             return GetNewGameFiled(game);
         }
+        #endregion
 
-        private async Task<Game> AddSecondPlayerToGame(Game game, Player player)
-        {
-            int indexOfStartedGame = startedGames.IndexOf(game);
-            game = await gameDataStore.GetGameAsync(game.Id);
-            game.Players.Add(player);
-            game.Status = GameStatus.Goes;
-            await gameDataStore.SaveChangesAsync();
-            startedGames[indexOfStartedGame] = game;
-            return game;
-        }
-
-        private OkObjectResult GetNewGameFiled(Game game)
-        {
-            return Ok(new { GameId = game.Id, Status = game.Status, Grid = game.GameMoves.LastOrDefault()?.Grid ?? GameGrid.EmptyGrid });
-        }
-
+        #region POST
         [HttpPost]
         public async Task<ActionResult<bool>> Post(GameMoveJson gameMoveJson)
         {
             if (!IsJsonCorrect(gameMoveJson))
             {
-                return BadRequest(new { Message = "Incorrect object", Example = new GameMoveJson() });
+                return await LogBadRequestAsync("Incorrect object", requestObject: gameMoveJson);
             }
 
             Game game = GetStartedGame(gameMoveJson.GameId);
@@ -116,12 +126,12 @@ namespace TicTacToeTest.Controllers
 
             if (game == null)
             {
-                return NotFound("Such game id not found");
+                return await LogNotFoundAsync("Such game id not found", requestObject: gameMoveJson);
             }
 
             if (!IsPlayerAttachedToGame(gameMoveJson.PlayerToken, game))
             {
-                return BadRequest("Access denied");
+                return await LogBadRequestAsync("Access denied", requestObject: gameMoveJson);
             }
 
             game = await gameDataStore.GetGameAsync(gameMoveJson.GameId);
@@ -145,7 +155,7 @@ namespace TicTacToeTest.Controllers
 
             await gameDataStore.SaveChangesAsync();
 
-            if (IsGameEnds(game))
+            if (IsGameFinished(game))
             {
                 startedGames.RemoveAt(indexOfStartedGame);
             }
@@ -155,6 +165,32 @@ namespace TicTacToeTest.Controllers
             }
 
             return true;
+        }
+        #endregion
+
+        private async Task<int> CreateNewGameAsync(Player player)
+        {
+            var game = new Game();
+            game.Players.Add(player);
+            int gameId = await gameDataStore.AddGameAsync(game);
+            startedGames.Add(game);
+            return gameId;
+        }
+
+        private async Task<Game> AddSecondPlayerToGame(Game game, Player player)
+        {
+            int indexOfStartedGame = startedGames.IndexOf(game);
+            game = await gameDataStore.GetGameAsync(game.Id);
+            game.Players.Add(player);
+            game.Status = GameStatus.Goes;
+            await gameDataStore.SaveChangesAsync();
+            startedGames[indexOfStartedGame] = game;
+            return game;
+        }
+
+        private OkObjectResult GetNewGameFiled(Game game)
+        {
+            return Ok(new { GameId = game.Id, Status = game.Status, Grid = game.GameMoves.LastOrDefault()?.Grid ?? GameGrid.EmptyGrid });
         }
 
         private bool IsJsonCorrect(GameMoveJson gameMoveJson)
@@ -175,7 +211,7 @@ namespace TicTacToeTest.Controllers
             return game.Players.Any(existingPlayer => existingPlayer.Equals(playerToken));
         }
 
-        private bool IsGameEnds(Game game)
+        private bool IsGameFinished(Game game)
         {
             return game.Status == GameStatus.CrossWon
                 || game.Status == GameStatus.ZeroWon

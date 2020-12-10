@@ -21,7 +21,8 @@ namespace TicTacToeTest.Data
 
         public Task AddLogEntry(LogEntry logEntry)
         {
-            return Task.CompletedTask;
+            dbContext.Log.Add(logEntry);
+            return dbContext.SaveChangesAsync();
         }
 
         public async Task<string> AddPlayerAsync(Player player)

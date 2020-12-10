@@ -8,6 +8,7 @@ namespace TicTacToeTest.Data
         public DbSet<Player> Players { get; set; }
         public DbSet<Game> Games { get; set; }
         public DbSet<GameMove> GameMoves { get; set; }
+        public DbSet<LogEntry> Log { get; set; }
 
         public TicTacToeDbContext(DbContextOptions options) : base(options)
         {

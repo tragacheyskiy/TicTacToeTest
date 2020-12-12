@@ -5,9 +5,9 @@ namespace TicTacToeTest.Models
     public class GameMoveJson
     {
         public int GameId { get; set; }
-        public string PlayerToken { get; set; } = "token";
-        public bool IsCapitulation { get; set; } = false;
-        public string Grid { get; set; } = GameGrid.EmptyGrid;
+        public string PlayerToken { get; set; }
+        public bool IsCapitulation { get; set; }
+        public string Grid { get; set; }
 
         public override string ToString()
         {
